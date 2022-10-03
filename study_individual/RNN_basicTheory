@@ -1,0 +1,49 @@
+import numpy as np
+import torch
+import torch.nn as nn
+
+
+
+'''timesteps = 10
+input_size = 4
+hidden_size = 8
+inputs = np.random.random((timesteps, input_size))
+hidden_state_t = np.zeros((hidden_size,))
+
+Wx = np.random.random((hidden_size, input_size))
+Wh = np.random.random((hidden_size, hidden_size))
+b = np.random.random((hidden_size,))
+
+total_hidden_states = []
+for input_t in inputs:
+    output_t = np.tanh(np.dot(Wx, input_t) + np.dot(Wh, hidden_state_t) + b)
+    total_hidden_states.append(list(output_t))
+    print(np.shape(total_hidden_states))
+    hidden_state_t = output_t
+
+total_hidden_states = np.stack(total_hidden_states, axis=0)
+
+print(total_hidden_states)'''
+
+
+
+input_size = 5
+hidden_size = 8
+inputs = torch.Tensor(1, 10, 5)
+cell = nn.RNN(input_size, hidden_size, batch_first=True)
+
+outputs, _status = cell(inputs)
+print(outputs.shape)
+
+
+inputs = torch.Tensor(1, 10, 5)
+cell = nn.RNN(input_size=5, hidden_size=8, num_layers=2, batch_first=True)
+print(outputs.shape)
+
+
+
+
+# LSTM의 셀 상태는 3개의 게이트(시그모이드 함수 포함)를 가지고 있다.
+# 1. 입력게이트 : 현재 입력을 얼마나 반영하는가 (0~1 값, -1~1 값)
+# 2. 삭제게이트 : 이전 셀 상태를 얼마나 반영하는가(0~1 값. 0에 가까울 수록 많이 삭제)
+# 3. 셀상태(장기 상태) : 입력게이트에선 선택된 기억을 삭제 게이트의 결과값과 더함.
