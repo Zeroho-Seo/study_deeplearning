@@ -1,0 +1,161 @@
+#양방향 RNN
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from torchtext import data
+from torchtext import datasets
+import time
+import random
+SEED = 1234
+random.seed(SEED)
+torch.manual_seed(SEED)
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+
+text = data.Field(lower = True)
+UD_Tags = data.Field(unk_token = None)
+PTB_Tags = data.Field(unk_token = None)
+fields = (("text", text), ('udtags', UD_Tags), ("ptbags", PTB_Tags))
+
+train_data, valid_data, test_data = datasets.UDPOS.splits(fields)
+
+min_freq = 5
+text.build_vocab(train_data, min_freq = min_freq, vectors = "glove.6B.100d")
+UD_Tags.build_vocab(train_data)
+PTB_Tags.build_vocab(train_data)
+
+def tag_percentage(tag_counts):
+    total_count = sum([count for tag, count in tag_counts])
+    tag_counts_percentages = [(tag, count, count/total_count) for tag, count in tag_counts]
+    return tag_counts_percentages
+
+batch_size = 64
+train_iterator, valid_iterator, test_iterator = data.BucketIterator.splits(
+    (train_data, valid_data, test_data),
+    batch_size = batch_size,
+    device = device
+)
+batch = next(iter(train_iterator))
+
+class RNNPOSTagger(nn.Module):
+    def __init__(self, vocab_size, embedding_dim, hidden_dim, output_dim, n_layers, bidiredctional, dropout):
+        super().__init__()
+        self.embedding = nn.Embedding(vocab_size, embedding_dim)
+        self.rnn = nn.LSTM(embedding_dim, hidden_dim, num_layers = n_layers, bidirectional = bidirectional)
+        self.fc = nn.Linear(hidden_dim*2, if bidirectional else hidden_dim, output_dim)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, text):
+        embedded = self.droppout(self.embedding(text))
+        outputs, (hidden, cell) = self.rnn(embedded)
+        predictions = self.fc(self.dropout(outputs))
+        return predictions
+
+input_dim = len(text.vocab)
+embedding_dim = 100
+hidden_dim = 128
+output_dim = len(UD_Tags.vocab)
+n_layers =2
+bidirectional = True
+dropout = 0.25
+
+model = RNNPOSTagger(input_dim,
+                     embedding_dim,
+                     hidden_dim,
+                     output_dim,
+                     n_layers,
+                     bidirectional,
+                     dropout)
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+
+pretrained_embeddings = text.vocab.vectors
+model.embedding.weight.data.copy_(pretrained_embeddings)
+UNK_idx = text.vocab.stoi[text.unk_token]
+PAD_idx = text.vocab.stoi[text.pad_token]
+model.embedding.weight.data[UNK_idx] = torch.zeros(embedding_dim)
+model.embedding.weight.data[PAD_idx] = torch.zeros(embedding_dim)
+
+tag_PAD_idx = UD_Tags.vocab.stoi[UD_Tags.pad_token]
+optimizer = optim.Adam(model.parameters())
+criterion = nn.CrossEntropyLoss(ignore_index= tag_PAD_idx)
+model = model.to(device)
+criterion = criterion.to(device)
+prediction = model(batch.text)
+prediction = prediction.view(-1, prediction.shape[-1])
+
+
+def categorical_accuracy(preds, y, tag_pad_idx):
+    max_preds = preds.argmax(dim=1, keepdim = True)
+    non_pad_elements = (y != tag_pad_idx).nonzero()
+    correct = max_preds[non_pad_elements].squeeze(1).eq(y[non_pad_elements])
+    return correct.sum() / torch.FloatTensor([y[non_pad_elements].shape[0]])
+
+def train(model, iterator, optimizer, criterion, tag_pad_idx):
+    epoch_loss = 0
+    epoch_acc = 0
+    model.train()
+    for batch in iterator:
+        text = batch.text
+        tags = batch.udtags
+        optimizer.zero_grad()
+        predictions =model(text)
+
+        predictions = predictions.view(-1, predictions.shape[-1])
+        tags = tags.view(-1)
+        loss = criterion(predictions, tags)
+        acc = categorical_accuracy(predictions, tags, tag_pad_idx)
+        loss.backward()
+        optimizer.step()
+        epoch_loss += loss.item()
+        epoch_acc += acc.item()
+    return epoch_loss / len(iterator), epoch_acc / len(iterator)
+
+def evaluate(model, iterator, criterion, tag_pad_idx):
+    epoch_loss = 0
+    epoch_acc = 0
+    model.eval()
+    with torch.no_grad()
+        for batch in iterator:
+            text = batch.text
+            tags = batch.udtags
+            predictions = model(text)
+            predictions = predictions.view(-1, predictions.shape[-1])
+            tags = tags.view(-1)
+
+            loss = criterion(predictions, tags)
+            acc = categorical_accuracy(predictions, tags, tag_pad_idx)
+
+            epoch_loss += loss.item()
+            epoch_acc += acc.item()
+    return epoch_loss / len(iterator), epoch_acc / len(iterator)
+
+n_epochs = 10
+best_valid_loss = float('inf')
+for epoch in range(n_epochs):
+    train_loss, train_acc = train(model, train_iterator, optimizer, criterion, tag_PAD_idx)
+    valid_loss, valid_acc = evaluate(model, valid_iterator, criterion, tag_PAD_idx)
+    if valid_loss < best_valid_loss:
+        best_valid_loss = valid_loss
+        torch.save(model.state_dict(), 'tut1-model.pt')
+    print(f'Epoch: {epoch + 1:02}')
+    print(f'\tTrain Loss: {train_loss:.3f} | Train Acc: {train_acc * 100:.2f}%')
+    print(f'\t Val. Loss: {valid_loss:.3f} |  Val. Acc: {valid_acc * 100:.2f}%')
+
+test_loss, test_acc = evaluate(model, test_iterator, criterion, TAG_PAD_IDX)
+
+print(f'Test Loss: {test_loss:.3f} |  Test Acc: {test_acc*100:.2f}%')
+
+
+
+
+
+
+#같은 문제...
+#이 코드를 내 파이참에서는 돌릴 수 없었다.
+#torchtext가 제대로 작동하게끔 설치를 못했다.
+#cuda도 파이참에서 is_available하지 않음. 다시 봐야한다.
+#참고로 anaconda prompt에서 conda가 제대로 작동하지 않아서 torchtext설치도 잘 못했다.
+#이런 문제점들을 돌아보며 나중에 복습예정.
