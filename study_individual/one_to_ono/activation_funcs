@@ -1,0 +1,45 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+def plotting(f):
+    plt.figure(figsize=(10,5))
+    plt.plot(X, f)
+    plt.xlabel("input")
+    plt.ylabel("output")
+    plt.xlim(-5, 5)
+    plt.show()
+
+
+def sigmoid(input):
+    return 1/(1+np.exp(-input))
+#gradient vanishing 문제.
+
+def leaky_ReLU(inputs):
+    return np.where(inputs>0, inputs, inputs*0.01)
+
+def swish(inputs): #google에서 개발한 activation func.
+    sig_output = 1/(1+np.exp(-inputs))
+    return inputs * sig_output
+
+def tanh(x):
+    return (np.exp(x) - np.exp(-x))/(np.exp(x) + np.exp(-x))
+#gradient vanishing 문제. 시그모이드보다는 나은 점은 원점으로 중심을 옮김.
+
+def ReLU(inputs):
+    return np.where(inputs>0, inputs, 0) # np.maximum(0,inputs)
+
+def elu(x, alp=0.9):
+    return (x>0)*x + (x<=0)*(alp*(np.exp(x)-1))
+
+
+
+
+X = [i for i in range(-5, 5, 1)]
+for i in range(len(X)):
+    X[i] = float(X[i])
+def drawing(f):
+    Y=[]
+    for i in X:
+        Y.append(float(f(i)))
+    return Y
+plotting(drawing(elu))
